@@ -1,0 +1,78 @@
+name: Build SpacemiT K3 Firmware
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+env:
+  TOOLCHAIN_URL: https://github.com/riscv-collab/riscv-gnu-toolchain/releases/download/2026.06.06/riscv64-glibc-ubuntu-24.04-gcc.tar.xz
+  CROSS_COMPILE: riscv64-unknown-linux-gnu-
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build All Firmware
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - uses: actions/checkout@v6
+        with:
+          repository: 'openRuyi-Project/linux'
+          path: 'linux'
+          fetch-depth: 1
+
+      - name: Install Dependencies
+        run: make install-deps
+
+      - name: Cache Linux Toolchain
+        id: cache-linux-tc
+        uses: actions/cache@v5
+        with:
+          path: /opt/riscv
+          key: linux-toolchain-${{ env.TOOLCHAIN_URL }}
+
+      - name: Setup Linux Toolchain
+        if: steps.cache-linux-tc.outputs.cache-hit != 'true'
+        run: curl -L --retry 3 --retry-delay 5 ${{ env.TOOLCHAIN_URL }} | tar -xJ -C /opt
+
+      - name: Add Linux Toolchain to PATH
+        run: echo "/opt/riscv/bin" >> $GITHUB_PATH
+
+      - name: Cache Bare-metal Toolchain
+        id: cache-bare-tc
+        uses: actions/cache@v5
+        with:
+          path: toolchain
+          key: bare-toolchain-spacemit-elf-newlib-v1.2.4
+
+      - name: Download Bare-metal Toolchain
+        if: steps.cache-bare-tc.outputs.cache-hit != 'true'
+        run: make toolchain
+
+      - name: Build
+        run: make CROSS_COMPILE=${{ env.CROSS_COMPILE }} all
+
+      - name: Upload Firmware
+        uses: actions/upload-artifact@v7
+        with:
+          name: bl-spacemit-k3
+          path: dist/
+
+      - name: Archive Firmware
+        if: github.ref_type == 'tag'
+        run: tar -cJf bl-spacemit-k3-${{ github.ref_name }}.tar.xz -C dist .
+
+      - name: Upload Firmware to Release (on Tag Push)
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v3
+        with:
+          name: Boot Firmware for SpacemiT K3 ${{ github.ref_name }}
+          files: bl-spacemit-k3-${{ github.ref_name }}.tar.xz
+          prerelease: true

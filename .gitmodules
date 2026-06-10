@@ -1,0 +1,16 @@
+[submodule "u-boot"]
+	path = u-boot
+	url = https://github.com/openRuyi-Project/u-boot.git
+	branch = spacemit-k3-vendor-2022.10
+[submodule "opensbi"]
+	path = opensbi
+	url = https://github.com/spacemit-com/opensbi.git
+	branch = k3-br-v1.0.y
+[submodule "esos"]
+	path = esos
+	url = https://github.com/openeuler-riscv/spacemit-k3-firmware-esos.git
+	branch = spacemit-k3-esos
+[submodule "esos-lite"]
+	path = esos-lite
+	url = https://github.com/openeuler-riscv/spacemit-k3-firmware-esos-lite.git
+	branch = spacemit-k3-esos-lite

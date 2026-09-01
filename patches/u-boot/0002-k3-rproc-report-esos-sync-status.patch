@@ -1,67 +1,111 @@
 diff --git a/drivers/remoteproc/k3-rproc.c b/drivers/remoteproc/k3-rproc.c
-index 8e99be17d42..53d5f581f75 100644
+index 8e99be17d42..52214142571 100644
 --- a/drivers/remoteproc/k3-rproc.c
 +++ b/drivers/remoteproc/k3-rproc.c
-@@ -20,6 +20,18 @@
+@@ -20,6 +20,16 @@
  #define RCPU_CORE1_BOOT_ENTRY_HI	0xc0880090
  #define RCPU_CORE1_HART_ID_SET		0xc0880094
  
 +/*
-+ * The remote core signals "my RPMI service is up" by writing a non-zero value
-+ * into the *other* core's boot-entry register, which we cleared just before
-+ * waking it (see rt_hw_rpmi_init() in the ESOS firmware).  Plain 1 means OK;
-+ * a value carrying RCPU_SYNC_ERR_MARK means ESOS gave up during its RPMI
-+ * bring-up and put the failing step in the low byte, so we get a diagnosis
-+ * instead of a silent six second stall.
++ * The remote core writes status into the *other* core's boot-entry register,
++ * which we clear just before waking it. Plain 1 means ready, 0xd000000N is a
++ * boot progress marker, and 0xe000000N reports an RPMI initialization error.
 + */
 +#define RCPU_SYNC_OK			0x00000001
++#define RCPU_SYNC_PROGRESS_MARK		0xd0000000
 +#define RCPU_SYNC_ERR_MARK		0xe0000000
-+#define RCPU_SYNC_ERR_MASK		0xf0000000
++#define RCPU_SYNC_MARK_MASK		0xf0000000
 +
  #define RCPU_EXECUTION_CTRL		0xc088c030
  
  #define RCPU_PWR_DOMAIN_STAT_REG	0xd42828f0
-@@ -97,6 +109,7 @@ static int k3_rproc_start(struct udevice *dev)
+@@ -52,6 +62,7 @@ struct k3_rproc_privdata {
+ static int k3_rproc_load(struct udevice *dev, ulong addr, ulong size)
  {
- 	int try_count = 6000;
+ 	unsigned int val;
++	int ret;
  	struct k3_rproc_privdata *priv;
-+	u32 sync;
  
  	priv = dev_get_priv(dev);
+@@ -90,12 +101,45 @@ static int k3_rproc_load(struct udevice *dev, ulong addr, ulong size)
+ 		break;
+ 	}
  
-@@ -125,8 +138,16 @@ static int k3_rproc_start(struct udevice *dev)
- 			mdelay(1);
- 		}
+-	return rproc_elf_load_image(dev, addr, size);
++	ret = rproc_elf_load_image(dev, addr, size);
++	if (!ret)
++		priv->fw_boot_entry = rproc_elf_get_boot_addr(dev, addr);
++
++	return ret;
++}
++
++static void k3_rproc_wait_ready(struct udevice *dev, int coreid,
++				ulong sync_reg)
++{
++	int elapsed;
++	u32 sync;
++
++	for (elapsed = 0; elapsed < 6000; elapsed++) {
++		sync = readl((void __iomem *)sync_reg);
++		if (sync == RCPU_SYNC_OK ||
++		    (sync & RCPU_SYNC_MARK_MASK) == RCPU_SYNC_ERR_MARK)
++			break;
++		mdelay(1);
++	}
++
++	sync = readl((void __iomem *)sync_reg);
++	if (sync == RCPU_SYNC_OK) {
++		printf("rproc-%d: ESOS ready\n", coreid);
++	} else if ((sync & RCPU_SYNC_MARK_MASK) == RCPU_SYNC_ERR_MARK) {
++		printf("rproc-%d: ESOS RPMI init failed at step %u (sync=0x%08x)\n",
++		       coreid, sync & 0xff, sync);
++	} else if ((sync & RCPU_SYNC_MARK_MASK) == RCPU_SYNC_PROGRESS_MARK) {
++		printf("rproc-%d: ESOS stalled at boot stage %u (sync=0x%08x)\n",
++		       coreid, sync & 0xff, sync);
++	} else {
++		dev_err(dev, "try start rproc-%d failed\n", coreid);
++		printf("rproc-%d: ESOS never started (sync=0x%08x)\n",
++		       coreid, sync);
++	}
+ }
  
+ static int k3_rproc_start(struct udevice *dev)
+ {
+-	int try_count = 6000;
+ 	struct k3_rproc_privdata *priv;
+ 
+ 	priv = dev_get_priv(dev);
+@@ -118,15 +162,7 @@ static int k3_rproc_start(struct udevice *dev)
+ 		/* sw wakeup core 0 */
+ 		writel(1, (void __iomem *)RT24_CORE0_SW_WAKEUP_REG);
+ 
+-		/* sync flag */
+-		while (try_count-- >= 0) {
+-			if (readl((void __iomem *)RCPU_CORE1_BOOT_ENTRY_LO) != 0)
+-				break;
+-			mdelay(1);
+-		}
+-
 -		if (try_count <= 0)
-+		sync = readl((void __iomem *)RCPU_CORE1_BOOT_ENTRY_LO);
-+		if (try_count <= 0) {
- 			dev_err(dev, "try start rproc-0 failed\n");
-+			printf("rproc-0: ESOS never signalled ready (waited 6000 ms)\n");
-+		} else if ((sync & RCPU_SYNC_ERR_MASK) == RCPU_SYNC_ERR_MARK) {
-+			printf("rproc-0: ESOS RPMI init failed at step %u (sync=0x%08x)\n",
-+			       sync & 0xff, sync);
-+		} else {
-+			printf("rproc-0: ESOS ready (sync=0x%08x)\n", sync);
-+		}
+-			dev_err(dev, "try start rproc-0 failed\n");
++		k3_rproc_wait_ready(dev, 0, RCPU_CORE1_BOOT_ENTRY_LO);
  
  		break;
  
-@@ -154,8 +175,16 @@ static int k3_rproc_start(struct udevice *dev)
- 			mdelay(1);
- 		}
+@@ -147,15 +183,7 @@ static int k3_rproc_start(struct udevice *dev)
+ 		/* sw wakeup core 1 */
+ 		writel(1, (void __iomem *)RT24_CORE1_SW_WAKEUP_REG);
  
+-		/* sync flag */
+-		while (try_count-- >= 0) {
+-			if (readl((void __iomem *)RCPU_CORE0_BOOT_ENTRY_LO) != 0)
+-				break;
+-			mdelay(1);
+-		}
+-
 -		if (try_count <= 0)
-+		sync = readl((void __iomem *)RCPU_CORE0_BOOT_ENTRY_LO);
-+		if (try_count <= 0) {
- 			dev_err(dev, "try start rproc-1 failed\n");
-+			printf("rproc-1: ESOS never signalled ready (waited 6000 ms)\n");
-+		} else if ((sync & RCPU_SYNC_ERR_MASK) == RCPU_SYNC_ERR_MARK) {
-+			printf("rproc-1: ESOS RPMI init failed at step %u (sync=0x%08x)\n",
-+			       sync & 0xff, sync);
-+		} else {
-+			printf("rproc-1: ESOS ready (sync=0x%08x)\n", sync);
-+		}
+-			dev_err(dev, "try start rproc-1 failed\n");
++		k3_rproc_wait_ready(dev, 1, RCPU_CORE0_BOOT_ENTRY_LO);
  		break;
  
  	default:

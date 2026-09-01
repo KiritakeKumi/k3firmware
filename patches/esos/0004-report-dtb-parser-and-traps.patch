@@ -1,0 +1,86 @@
+diff --git a/bsp/spacemit/drivers/board.c b/bsp/spacemit/drivers/board.c
+index 183448cf7..d1f9019cf 100644
+--- a/bsp/spacemit/drivers/board.c
++++ b/bsp/spacemit/drivers/board.c
+@@ -23,7 +23,7 @@ extern unsigned char __bss_end__[];
+ #define ESOS_BOOT_ERROR_MARK	0xf0000000
+ #define ESOS_DTB_TABLE_ENTRIES	28
+ 
+-static void esos_boot_trace(unsigned int stage)
++void esos_boot_trace(unsigned int stage)
+ {
+ 	unsigned int hart_id = read_csr(mhartid);
+ 
+diff --git a/components/fdt-main/src/dtb_head.c b/components/fdt-main/src/dtb_head.c
+index 6c35d9e83..d9ea3a94b 100644
+--- a/components/fdt-main/src/dtb_head.c
++++ b/components/fdt-main/src/dtb_head.c
+@@ -8,6 +8,9 @@
+ 
+ static void *fdt = NULL;
+ static struct dtb_node *dtb_node_list = NULL;
++
++extern void esos_boot_trace(unsigned int stage);
++
+ void *get_fdt_blob(void)
+ {
+     return fdt;
+@@ -25,11 +28,15 @@ bool dtb_node_active(void)
+ 
+ int device_tree_setup(void *mem_addr)
+ {
++    esos_boot_trace(0x30);
++
+     if(mem_addr)
+     {
+         if ((fdt = dtb_node_load_from_memory(mem_addr, 0)) != NULL)
+         {
++            esos_boot_trace(0x31);
+             dtb_node_list = dtb_node_get_dtb_list(fdt);
++            esos_boot_trace(0x32);
+             if (dtb_node_list != NULL)
+             {
+                 return -1;
+diff --git a/libcpu/risc-v/spacemit/rt24/trap.c b/libcpu/risc-v/spacemit/rt24/trap.c
+index 146a6a790..bcbc78226 100644
+--- a/libcpu/risc-v/spacemit/rt24/trap.c
++++ b/libcpu/risc-v/spacemit/rt24/trap.c
+@@ -11,6 +11,24 @@
+ #include <rthw.h>
+ #include <rtthread.h>
+ #include <riscv_encoding.h>
++#include <riscv-ops.h>
++#include <register_defination.h>
++
++#define ESOS_TRAP_MARK 0xc0000000
++
++static void esos_report_trap(rt_size_t cause, rt_size_t epc)
++{
++    unsigned int hart_id = read_csr(mhartid);
++    unsigned long status_reg;
++
++    if (hart_id == 0)
++        status_reg = RCPU_CORE1_BOOT_ENTRY_LO;
++    else
++        status_reg = RCPU_CORE0_BOOT_ENTRY_LO;
++
++    writel((unsigned int)epc, (unsigned int *)(status_reg + sizeof(unsigned int)));
++    writel(ESOS_TRAP_MARK | (cause & 0xff), (unsigned int *)status_reg);
++}
+ 
+ 
+ struct exception_stack_frame
+@@ -121,7 +139,13 @@ RT_WEAK rt_size_t handle_trap(rt_size_t cause, rt_size_t epc, rt_size_t *sp)
+ 
+         rt_hw_interrupt_disable();
+ 
++        esos_report_trap(cause, epc);
++
+         tid = rt_thread_self();
++        if (tid == RT_NULL)
++            while (1)
++                asm volatile ("wfi");
++
+         rt_kprintf("\nException:\n");
+         switch (cause)
+         {

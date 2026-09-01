@@ -1,0 +1,31 @@
+diff --git a/drivers/remoteproc/k3-rproc.c b/drivers/remoteproc/k3-rproc.c
+index 0dd9e763172..f6617f2dafe 100644
+--- a/drivers/remoteproc/k3-rproc.c
++++ b/drivers/remoteproc/k3-rproc.c
+@@ -27,6 +27,7 @@
+  * 0xf000000N reports a board initialization error.
+  */
+ #define RCPU_SYNC_OK			0x00000001
++#define RCPU_SYNC_TRAP_MARK		0xc0000000
+ #define RCPU_SYNC_PROGRESS_MARK		0xd0000000
+ #define RCPU_SYNC_ERR_MARK		0xe0000000
+ #define RCPU_SYNC_BOOT_ERR_MARK		0xf0000000
+@@ -119,6 +120,7 @@ static void k3_rproc_wait_ready(struct udevice *dev, int coreid,
+ 	for (elapsed = 0; elapsed < 6000; elapsed++) {
+ 		sync = readl((void __iomem *)sync_reg);
+ 		if (sync == RCPU_SYNC_OK ||
++		    (sync & RCPU_SYNC_MARK_MASK) == RCPU_SYNC_TRAP_MARK ||
+ 		    (sync & RCPU_SYNC_MARK_MASK) == RCPU_SYNC_ERR_MARK ||
+ 		    (sync & RCPU_SYNC_MARK_MASK) == RCPU_SYNC_BOOT_ERR_MARK)
+ 			break;
+@@ -128,6 +130,10 @@ static void k3_rproc_wait_ready(struct udevice *dev, int coreid,
+ 	sync = readl((void __iomem *)sync_reg);
+ 	if (sync == RCPU_SYNC_OK) {
+ 		printf("rproc-%d: ESOS ready\n", coreid);
++	} else if ((sync & RCPU_SYNC_MARK_MASK) == RCPU_SYNC_TRAP_MARK) {
++		printf("rproc-%d: ESOS exception cause %u at pc 0x%08x\n",
++		       coreid, sync & 0xff,
++		       readl((void __iomem *)(sync_reg + sizeof(u32))));
+ 	} else if ((sync & RCPU_SYNC_MARK_MASK) == RCPU_SYNC_ERR_MARK) {
+ 		printf("rproc-%d: ESOS RPMI init failed at step %u (sync=0x%08x)\n",
+ 		       coreid, sync & 0xff, sync);

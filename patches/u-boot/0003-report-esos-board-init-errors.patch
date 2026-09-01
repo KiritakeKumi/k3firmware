@@ -1,0 +1,36 @@
+diff --git a/drivers/remoteproc/k3-rproc.c b/drivers/remoteproc/k3-rproc.c
+--- a/drivers/remoteproc/k3-rproc.c
++++ b/drivers/remoteproc/k3-rproc.c
+@@ -23,10 +23,12 @@
+  * The remote core writes status into the *other* core's boot-entry register,
+  * which we clear just before waking it. Plain 1 means ready, 0xd000000N is a
+- * boot progress marker, and 0xe000000N reports an RPMI initialization error.
++ * boot progress marker, 0xe000000N reports an RPMI initialization error, and
++ * 0xf000000N reports a board initialization error.
+  */
+ #define RCPU_SYNC_OK			0x00000001
+ #define RCPU_SYNC_PROGRESS_MARK		0xd0000000
+ #define RCPU_SYNC_ERR_MARK		0xe0000000
++#define RCPU_SYNC_BOOT_ERR_MARK		0xf0000000
+ #define RCPU_SYNC_MARK_MASK		0xf0000000
+ 
+ #define RCPU_EXECUTION_CTRL		0xc088c030
+@@ -111,7 +113,8 @@ static void k3_rproc_wait_ready(struct udevice *dev, int coreid,
+ 	for (elapsed = 0; elapsed < 6000; elapsed++) {
+ 		sync = readl((void __iomem *)sync_reg);
+ 		if (sync == RCPU_SYNC_OK ||
+-		    (sync & RCPU_SYNC_MARK_MASK) == RCPU_SYNC_ERR_MARK)
++		    (sync & RCPU_SYNC_MARK_MASK) == RCPU_SYNC_ERR_MARK ||
++		    (sync & RCPU_SYNC_MARK_MASK) == RCPU_SYNC_BOOT_ERR_MARK)
+ 			break;
+ 		mdelay(1);
+ 	}
+@@ -122,5 +125,8 @@ static void k3_rproc_wait_ready(struct udevice *dev, int coreid,
+ 		printf("rproc-%d: ESOS RPMI init failed at step %u (sync=0x%08x)\n",
+ 		       coreid, sync & 0xff, sync);
++	} else if ((sync & RCPU_SYNC_MARK_MASK) == RCPU_SYNC_BOOT_ERR_MARK) {
++		printf("rproc-%d: ESOS board init failed at step %u (sync=0x%08x)\n",
++		       coreid, sync & 0xff, sync);
+ 	} else if ((sync & RCPU_SYNC_MARK_MASK) == RCPU_SYNC_PROGRESS_MARK) {
+ 		printf("rproc-%d: ESOS stalled at boot stage %u (sync=0x%08x)\n",
+ 		       coreid, sync & 0xff, sync);

@@ -1,0 +1,78 @@
+diff --git a/bsp/spacemit/drivers/board.c b/bsp/spacemit/drivers/board.c
+--- a/bsp/spacemit/drivers/board.c
++++ b/bsp/spacemit/drivers/board.c
+@@ -20,5 +20,7 @@ extern unsigned char __bss_end__[];
+ 
+ #define ESOS_BOOT_PROGRESS_MARK	0xd0000000
++#define ESOS_BOOT_ERROR_MARK	0xf0000000
++#define ESOS_DTB_TABLE_ENTRIES	28
+ 
+ static void esos_boot_trace(unsigned int stage)
+ {
+@@ -34,6 +36,18 @@ static void esos_boot_trace(unsigned int stage)
+ 		       (unsigned int *)RCPU_CORE0_BOOT_ENTRY_LO);
+ }
+ 
++static void esos_boot_error(unsigned int step)
++{
++	unsigned int hart_id = read_csr(mhartid);
++
++	if (hart_id == 0)
++		writel(ESOS_BOOT_ERROR_MARK | step,
++		       (unsigned int *)RCPU_CORE1_BOOT_ENTRY_LO);
++	else
++		writel(ESOS_BOOT_ERROR_MARK | step,
++		       (unsigned int *)RCPU_CORE0_BOOT_ENTRY_LO);
++}
++
+ #if defined(RT_USING_CLK) && defined(RT_USING_MUTEX)
+ struct rt_mutex clk_prepare_mutex;
+ struct rt_mutex of_clk_mutex;
+@@ -144,18 +158,24 @@ void rt_hw_board_init(void)
+ #ifdef RT_USING_HEAP
+     rt_system_heap_init((void *)RT_HEAP_START, (void *)RT_HEAP_END);
+ #endif
++	esos_boot_trace(0x20);
+ 
+ #ifdef SOC_SPACEMIT_K1_X
+     device_tree_setup((void *)__irf_start);
+ #else
+     void *dtb_base = RT_NULL;
+     int offset = 0;
++    int i;
++    int dtb_found = 0;
+     const void *board_property = RT_NULL;
+     const void *cpu_property = RT_NULL;
+ 
+-    for (dtb_base = (void *)DTB_TABLE_BASE_ADDR;;dtb_base += (unsigned long)DTB_TABLE_STEP) {
++    for (i = 0, dtb_base = (void *)DTB_TABLE_BASE_ADDR;
++         i < ESOS_DTB_TABLE_ENTRIES;
++         ++i, dtb_base += (unsigned long)DTB_TABLE_STEP) {
+ 	  if (fdt_check_header(dtb_base))
+ 		  continue;
++	  esos_boot_trace(0x21);
+ 	  offset = fdt_path_offset(dtb_base, "/");
+ 	  board_property = fdt_getprop_namelen(dtb_base, offset, "model", rt_strlen("model"), RT_NULL);
+ 	  if (board_property) {
+@@ -160,12 +180,21 @@ void rt_hw_board_init(void)
+ 		cpu_property = fdt_getprop_namelen(dtb_base, offset, "reg", rt_strlen("reg"), RT_NULL);
+ 		if (rt_strcmp(board_property, (char *)AR_DATA_INTERACTION_BASE) == 0) {
++			esos_boot_trace(0x22);
+ 			if (read_csr(mhartid) == fdt32_to_cpu(*(unsigned int *)cpu_property)) {
++				esos_boot_trace(0x23);
+                                 device_tree_setup((void *)dtb_base);
++				esos_boot_trace(0x24);
++				dtb_found = 1;
+ 				break;
+ 			}
+ 		}
+ 	  }
+     }
++    if (!dtb_found) {
++		esos_boot_error(1);
++		for (;;)
++			asm volatile ("wfi");
++    }
+ 	esos_boot_trace(3);
+ #endif
+ 

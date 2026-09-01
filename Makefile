@@ -32,7 +32,7 @@ APT_DEPS_LINUX   := gcc-riscv64-linux-gnu flex bison libssl-dev
 
 # ─── Top-level targets ───────────────────────────────────────────────
 
-.PHONY: all clean u-boot opensbi esos dist submodules linux-dtbs toolchain
+.PHONY: all clean u-boot opensbi esos dist submodules patch-submodules linux-dtbs toolchain
 .PHONY: check-deps install-deps
 .PHONY: esos-lite esos-core esos-itb
 
@@ -75,6 +75,36 @@ dist: all
 submodules:
 	git submodule update --init --recursive --depth 1
 
+# ─── Local patches on top of the submodules ──────────────────────────
+#
+# The submodules are pinned by commit, so edits made inside them do not travel
+# with a commit to this repository and CI checks them out fresh. Keep such
+# changes here as patch files and apply them right after the checkout instead.
+# Re-applying is safe: an already-applied patch is detected and skipped.
+
+PATCH_DIR := $(CURDIR)/patches
+
+define apply_patches
+	@if [ -d "$(PATCH_DIR)/$(1)" ]; then \
+		for p in $$(ls $(PATCH_DIR)/$(1)/*.patch 2>/dev/null | sort); do \
+			if git -C $(1) apply --reverse --check "$$p" >/dev/null 2>&1; then \
+				echo "  [$(1)] already applied: $$(basename $$p)"; \
+			elif git -C $(1) apply "$$p"; then \
+				echo "  [$(1)] applied: $$(basename $$p)"; \
+			else \
+				echo "  [$(1)] FAILED to apply: $$(basename $$p)"; exit 1; \
+			fi; \
+		done; \
+	fi
+endef
+
+patch-submodules: submodules
+	@echo "==> Applying local patches from $(PATCH_DIR)"
+	$(call apply_patches,u-boot)
+	$(call apply_patches,esos)
+	$(call apply_patches,esos-lite)
+	$(call apply_patches,opensbi)
+
 # ─── Bare-metal toolchain ────────────────────────────────────────────
 
 $(BARE_TOOLCHAIN_DIR)/bin/$(BARE_CROSS)gcc:
@@ -90,7 +120,7 @@ u-boot: u-boot/.config linux-dtbs
 	$(MAKE) -C u-boot -j$(NPROC) CROSS_COMPILE=$(CROSS_COMPILE) \
 		LINUX_DTB_DIR=$(LINUX_DTB_DIR)
 
-u-boot/.config: | submodules
+u-boot/.config: | patch-submodules
 	$(MAKE) -C u-boot -j$(NPROC) CROSS_COMPILE=$(CROSS_COMPILE) $(UBOOT_DEFCONFIG)
 
 # ─── Linux DTBs ──────────────────────────────────────────────────────
@@ -104,7 +134,7 @@ linux-dtbs: | linux
 
 # ─── OpenSBI ─────────────────────────────────────────────────────────
 
-opensbi: | submodules
+opensbi: | patch-submodules
 	$(MAKE) -C opensbi -j$(NPROC) \
 		CROSS_COMPILE=$(CROSS_COMPILE) \
 		PLATFORM=generic \
@@ -114,7 +144,7 @@ opensbi: | submodules
 
 esos: esos-lite esos-core esos-itb
 
-esos/components/esos-lite: | submodules
+esos/components/esos-lite: | patch-submodules
 	@mkdir -p esos/components
 	#@if [ ! -L esos/components/esos-lite ]; then \
 	#	ln -s ../../esos-lite esos/components/esos-lite; \

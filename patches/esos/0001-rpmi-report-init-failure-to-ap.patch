@@ -1,0 +1,100 @@
+diff --git a/bsp/spacemit/drivers/rpmi/spacemit-rpmi.c b/bsp/spacemit/drivers/rpmi/spacemit-rpmi.c
+index aa8fea36b..ca4c87392 100644
+--- a/bsp/spacemit/drivers/rpmi/spacemit-rpmi.c
++++ b/bsp/spacemit/drivers/rpmi/spacemit-rpmi.c
+@@ -171,6 +171,34 @@ static rt_int32_t spacemit_rpmi_create_foundation(char *name, struct spacemit_rp
+ 	return 0;
+ }
+ 
++/*
++ * The SPL wakes us and then polls the *other* core's boot-entry register,
++ * waiting up to 6 seconds for a non-zero value that means "RPMI is up"
++ * (k3_rproc_start() in U-Boot).  Every error path below used to return
++ * without writing anything, so a failed bring-up looked exactly like a dead
++ * core: six seconds of nothing, no message, and no RPMI for OpenSBI.
++ *
++ * Report the failing step instead.  RPMI_SYNC_OK keeps the original meaning;
++ * anything carrying RPMI_SYNC_ERR_MARK releases the SPL immediately and tells
++ * it which step gave up.
++ */
++#define RPMI_SYNC_OK			0x00000001
++#define RPMI_SYNC_ERR_MARK		0xe0000000
++#define RPMI_SYNC_ERR_NO_MEM		(RPMI_SYNC_ERR_MARK | 1)
++#define RPMI_SYNC_ERR_GET_CONFIG	(RPMI_SYNC_ERR_MARK | 2)
++#define RPMI_SYNC_ERR_FOUNDATION	(RPMI_SYNC_ERR_MARK | 3)
++#define RPMI_SYNC_ERR_SRV_CONFIG	(RPMI_SYNC_ERR_MARK | 4)
++#define RPMI_SYNC_ERR_SRV_REGISTER	(RPMI_SYNC_ERR_MARK | 5)
++#define RPMI_SYNC_ERR_NO_NODE		(RPMI_SYNC_ERR_MARK | 6)
++
++static void rpmi_sync_ap(unsigned int hart_id, unsigned int code)
++{
++	if (hart_id == 0)
++		writel(code, (unsigned int *)RCPU_CORE1_BOOT_ENTRY_LO);
++	else
++		writel(code, (unsigned int *)RCPU_CORE0_BOOT_ENTRY_LO);
++}
++
+ rt_int32_t rt_hw_rpmi_init(void)
+ {
+ 	rt_int32_t i, j, ret, c= 0;
+@@ -178,6 +206,7 @@ rt_int32_t rt_hw_rpmi_init(void)
+ 	struct dtb_node *compatible_node;
+ 	struct dtb_node *dtb_head_node = get_dtb_node_head();
+ 	unsigned int hart_id = read_csr(mhartid);
++	int configured = 0;
+ 
+ 	for (i = 0; i < sizeof(__compatible) / sizeof(__compatible[0]); ++i) {
+ 		compatible_node = dtb_node_find_compatible_node(dtb_head_node,
+@@ -192,6 +221,7 @@ rt_int32_t rt_hw_rpmi_init(void)
+ 			priv = (struct spacemit_rpmi_priv *)rt_calloc(1, sizeof(struct spacemit_rpmi_priv));
+ 			if (priv == RT_NULL) {
+ 				rt_kprintf("%s:%d, No memory\n", __func__, __LINE__);
++				rpmi_sync_ap(hart_id, RPMI_SYNC_ERR_NO_MEM);
+ 				return -RT_ENOMEM;
+ 			}
+ 
+@@ -200,6 +230,7 @@ rt_int32_t rt_hw_rpmi_init(void)
+ 			ret = spacemit_rpmi_get_config_from_dt(compatible_node, &priv->config);
+ 			if (ret < 0) {
+ 				rt_kprintf("%s:%d, get config error\n", __func__, __LINE__);
++				rpmi_sync_ap(hart_id, RPMI_SYNC_ERR_GET_CONFIG);
+ 				return -RT_EINVAL;
+ 			}
+ 
+@@ -220,6 +251,7 @@ rt_int32_t rt_hw_rpmi_init(void)
+ 			ret = spacemit_rpmi_create_foundation(__compatible[i].compatible, priv, j + 1 + 1 /* hsm with syssusp and base */);
+ 			if (ret < 0) {
+ 				rt_kprintf("%s:%d, create foundation failed\n", __func__, __LINE__);
++				rpmi_sync_ap(hart_id, RPMI_SYNC_ERR_FOUNDATION);
+ 				return -RT_EINVAL;
+ 			}
+ 
+@@ -235,23 +267,24 @@ rt_int32_t rt_hw_rpmi_init(void)
+ 				ret = func->rmpi_get_configuration(compatible_node, (void *)&priv->config, sub_node[c].compatible);
+ 				if (ret < 0) {
+ 					rt_kprintf("%s, get the configuration failed\n", sub_node[j].compatible, __func__, __LINE__);
++					rpmi_sync_ap(hart_id, RPMI_SYNC_ERR_SRV_CONFIG);
+ 					return -RT_EINVAL;
+ 				}
+ 
+ 				ret = func->rpmi_register_service((void *)&priv->config, priv->cntx);
+ 				if (ret < 0) {
+ 					rt_kprintf("%s, register service failed\n", sub_node[j].compatible);
++					rpmi_sync_ap(hart_id, RPMI_SYNC_ERR_SRV_REGISTER);
+ 					return -RT_EINVAL;
+ 				}
+ 			}
++
++			configured = 1;
+ 		}
+ 	}
+ 
+ 	/* the rpmi must be prepared ok before booting opensbi, so we should sync the spl */
+-	if (hart_id ==0) {
+-		writel(1, (unsigned int *)RCPU_CORE1_BOOT_ENTRY_LO);
+-	} else
+-		writel(1, (unsigned int *)RCPU_CORE0_BOOT_ENTRY_LO);
++	rpmi_sync_ap(hart_id, configured ? RPMI_SYNC_OK : RPMI_SYNC_ERR_NO_NODE);
+ 
+ 	return 0;
+ }

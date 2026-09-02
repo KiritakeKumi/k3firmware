@@ -1,0 +1,27 @@
+diff --git a/bsp/spacemit/drivers/board.c b/bsp/spacemit/drivers/board.c
+--- a/bsp/spacemit/drivers/board.c
++++ b/bsp/spacemit/drivers/board.c
+@@ -15,5 +15,22 @@
+ #ifdef RT_USING_ARMSCP_MODULE
+ #include <fwk_arch.h>
+ #endif
+-
++
++/* The toolchain's memcmp uses unaligned word loads unsupported by the RCPU. */
++int memcmp(const void *left, const void *right, size_t count)
++{
++	const volatile unsigned char *a = left;
++	const volatile unsigned char *b = right;
++
++	while (count--)
++	{
++		int diff = *a++ - *b++;
++
++		if (diff)
++			return diff;
++	}
++
++	return 0;
++}
++
+ extern unsigned char __bss_end__[];

@@ -1,0 +1,47 @@
+diff --git a/bsp/spacemit/drivers/board.c b/bsp/spacemit/drivers/board.c
+index 8a9da35af..42414d134 100644
+--- a/bsp/spacemit/drivers/board.c
++++ b/bsp/spacemit/drivers/board.c
+@@ -35,5 +35,40 @@ int memcmp(const void *left, const void *right, size_t count)
+ }
+-
++
++void *memcpy(void *dst, const void *src, size_t count)
++{
++	return rt_memcpy(dst, src, count);
++}
++
++void *memmove(void *dst, const void *src, size_t count)
++{
++	return rt_memmove(dst, src, count);
++}
++
++void *memset(void *dst, int value, size_t count)
++{
++	return rt_memset(dst, value, count);
++}
++
++char *strncpy(char *dst, const char *src, size_t count)
++{
++	return rt_strncpy(dst, src, count);
++}
++
++int strncmp(const char *left, const char *right, size_t count)
++{
++	return rt_strncmp(left, right, count);
++}
++
++int strcmp(const char *left, const char *right)
++{
++	return rt_strcmp(left, right);
++}
++
++size_t strlen(const char *str)
++{
++	return rt_strlen(str);
++}
++
+ extern unsigned char __bss_end__[];
+-
++
+ #define ESOS_BOOT_PROGRESS_MARK	0xd0000000

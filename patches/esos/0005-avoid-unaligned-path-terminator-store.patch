@@ -1,0 +1,26 @@
+diff --git a/components/fdt-main/src/dtb_get.c b/components/fdt-main/src/dtb_get.c
+index d99114d79..f3b02c3c6 100644
+--- a/components/fdt-main/src/dtb_get.c
++++ b/components/fdt-main/src/dtb_get.c
+@@ -103,8 +103,8 @@ static int _dtb_node_get_dtb_nodes_list(struct dtb_node *dtb_node_head, struct d
+             paths_buf.cur += pathname_sz;
+             strncpy(paths_buf.cur, (char *)dtb_node->name, node_name_sz);
+             paths_buf.cur += node_name_sz;
+-            *paths_buf.cur++ = '/';
+-            *paths_buf.cur++ = '\0';
++            *(volatile char *)paths_buf.cur++ = '/';
++            *(volatile char *)paths_buf.cur++ = '\0';
+         }
+         else
+         {
+@@ -196,8 +196,8 @@ static int _dtb_node_get_dtb_nodes_list(struct dtb_node *dtb_node_head, struct d
+                 paths_buf.cur += pathname_sz;
+                 strncpy(paths_buf.cur, (char *)dtb_node->name, node_name_sz);
+                 paths_buf.cur += node_name_sz;
+-                *paths_buf.cur++ = '/';
+-                *paths_buf.cur++ = '\0';
++                *(volatile char *)paths_buf.cur++ = '/';
++                *(volatile char *)paths_buf.cur++ = '\0';
+             }
+             else
+             {

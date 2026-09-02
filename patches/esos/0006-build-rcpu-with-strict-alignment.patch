@@ -1,0 +1,8 @@
+diff --git a/bsp/spacemit/rtconfig.py b/bsp/spacemit/rtconfig.py
+index 5356e40b1..c6dcb1999 100644
+--- a/bsp/spacemit/rtconfig.py
++++ b/bsp/spacemit/rtconfig.py
+@@ -80,2 +80,2 @@ else:
+-        CFLAGS  = DEVICE + '-ffreestanding -flax-vector-conversions -Wno-cpp -fno-common -ffunction-sections -fdata-sections -fstrict-volatile-bitfields -fdiagnostics-color=always'
++        CFLAGS  = DEVICE + '-mstrict-align -ffreestanding -flax-vector-conversions -Wno-cpp -fno-common -ffunction-sections -fdata-sections -fstrict-volatile-bitfields -fdiagnostics-color=always'
+         AFLAGS  = ' -c' + DEVICE + ' -x assembler-with-cpp -D__ASSEMBLY__ '

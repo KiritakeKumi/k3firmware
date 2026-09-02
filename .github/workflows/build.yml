@@ -59,6 +59,15 @@ jobs:
       - name: Build
         run: make CROSS_COMPILE=${{ env.CROSS_COMPILE }} all
 
+      - name: Symbolize ESOS boot exceptions
+        run: |
+          ADDR2LINE=toolchain/spacemit-toolchain-elf-newlib-x86_64-v1.2.4/bin/riscv64-unknown-elf-addr2line
+          OBJDUMP=toolchain/spacemit-toolchain-elf-newlib-x86_64-v1.2.4/bin/riscv64-unknown-elf-objdump
+          "$ADDR2LINE" -a -f -C -i -e output/esos/rt24_os0_rcpu.elf 0x1002132a4
+          "$ADDR2LINE" -a -f -C -i -e output/esos/rt24_os1_rcpu.elf 0x100816af8
+          "$OBJDUMP" -dSl --start-address=0x100213280 --stop-address=0x1002132c0 output/esos/rt24_os0_rcpu.elf
+          "$OBJDUMP" -dSl --start-address=0x100816ad0 --stop-address=0x100816b20 output/esos/rt24_os1_rcpu.elf
+
       - name: Upload Firmware
         uses: actions/upload-artifact@v7
         with:

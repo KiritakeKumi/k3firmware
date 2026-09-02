@@ -38,17 +38,27 @@ index aa8fea36b..686902716 100644
  rt_int32_t rt_hw_rpmi_init(void)
  {
  	rt_int32_t i, j, ret, c= 0;
-@@ -178,6 +207,9 @@ rt_int32_t rt_hw_rpmi_init(void)
+@@ -178,6 +207,10 @@ rt_int32_t rt_hw_rpmi_init(void)
  	struct dtb_node *compatible_node;
  	struct dtb_node *dtb_head_node = get_dtb_node_head();
  	unsigned int hart_id = read_csr(mhartid);
 +	int configured = 0;
++	int node_present = 0;
 +
 +	rpmi_sync_ap(hart_id, RPMI_SYNC_PROGRESS_MARK | 5);
  
  	for (i = 0; i < sizeof(__compatible) / sizeof(__compatible[0]); ++i) {
  		compatible_node = dtb_node_find_compatible_node(dtb_head_node,
-@@ -192,6 +224,7 @@ rt_int32_t rt_hw_rpmi_init(void)
+@@ -184,7 +217,8 @@ rt_int32_t rt_hw_rpmi_init(void)
+ 			__compatible[i].compatible);
+ 
+ 		if (compatible_node != RT_NULL) {
++			node_present = 1;
+ 
+ 			/* check the status */
+ 			if (!dtb_node_device_is_available(compatible_node))
+ 				continue;
+@@ -192,6 +226,7 @@ rt_int32_t rt_hw_rpmi_init(void)
  			priv = (struct spacemit_rpmi_priv *)rt_calloc(1, sizeof(struct spacemit_rpmi_priv));
  			if (priv == RT_NULL) {
  				rt_kprintf("%s:%d, No memory\n", __func__, __LINE__);
@@ -56,7 +66,7 @@ index aa8fea36b..686902716 100644
  				return -RT_ENOMEM;
  			}
  
-@@ -200,6 +233,7 @@ rt_int32_t rt_hw_rpmi_init(void)
+@@ -200,6 +235,7 @@ rt_int32_t rt_hw_rpmi_init(void)
  			ret = spacemit_rpmi_get_config_from_dt(compatible_node, &priv->config);
  			if (ret < 0) {
  				rt_kprintf("%s:%d, get config error\n", __func__, __LINE__);
@@ -64,7 +74,7 @@ index aa8fea36b..686902716 100644
  				return -RT_EINVAL;
  			}
  
-@@ -220,6 +254,7 @@ rt_int32_t rt_hw_rpmi_init(void)
+@@ -220,6 +256,7 @@ rt_int32_t rt_hw_rpmi_init(void)
  			ret = spacemit_rpmi_create_foundation(__compatible[i].compatible, priv, j + 1 + 1 /* hsm with syssusp and base */);
  			if (ret < 0) {
  				rt_kprintf("%s:%d, create foundation failed\n", __func__, __LINE__);
@@ -72,7 +82,7 @@ index aa8fea36b..686902716 100644
  				return -RT_EINVAL;
  			}
  
-@@ -235,23 +270,24 @@ rt_int32_t rt_hw_rpmi_init(void)
+@@ -235,23 +272,30 @@ rt_int32_t rt_hw_rpmi_init(void)
  				ret = func->rmpi_get_configuration(compatible_node, (void *)&priv->config, sub_node[c].compatible);
  				if (ret < 0) {
  					rt_kprintf("%s, get the configuration failed\n", sub_node[j].compatible, __func__, __LINE__);
@@ -97,7 +107,13 @@ index aa8fea36b..686902716 100644
 -		writel(1, (unsigned int *)RCPU_CORE1_BOOT_ENTRY_LO);
 -	} else
 -		writel(1, (unsigned int *)RCPU_CORE0_BOOT_ENTRY_LO);
-+	rpmi_sync_ap(hart_id, configured ? RPMI_SYNC_OK : RPMI_SYNC_ERR_NO_NODE);
++	/*
++	 * OS1 deliberately disables its RPMI node: OS0 is the sole RPMI server.
++	 * Treat that explicit secondary-core configuration as ready, but keep a
++	 * missing or unusable RPMI node on OS0 visible as an initialization error.
++	 */
++	rpmi_sync_ap(hart_id, configured || (hart_id != 0 && node_present) ?
++		RPMI_SYNC_OK : RPMI_SYNC_ERR_NO_NODE);
  
  	return 0;
  }
